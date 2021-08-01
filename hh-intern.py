@@ -97,28 +97,32 @@ def parse_history():
 
 def main():
     if len(sys.argv) == 1:
-        usage()
+        theDir = os.getcwd()
+    else:
+        arg = sys.argv[1]
+        if arg == "--help": # don't name your directory --help
+            usage()
 
-    arg = sys.argv[1]
-    if arg == ".":
-        cmap = parse_history()
-        if False:
-            ks = list(cmap.keys())
-            ks.sort()
-            for k in ks:
-                print("DIRS:", k)
-        # look for commands we had in this dir.
-        cwd = os.getcwd()
-        print(cwd)
+        theDir = os.path.realpath(arg)
+    # endif
 
-        cmds = cmap.get(cwd)
-        if cmds is None:
-            print("No commands found for this directory :-(")
-            sys.exit(1)
-        # endif
+    cmap = parse_history()
+    if False:
+        ks = list(cmap.keys())
+        ks.sort()
+        for k in ks:
+            print("DIRS:", k)
+    # look for commands we had in this dir.
+    print(theDir)
 
-        for entry in cmds:
-            print("   %s" % entry)
+    cmds = cmap.get(theDir)
+    if cmds is None:
+        print("No commands found for %s." % theDir)
+        sys.exit(1)
+    # endif
+
+    for entry in cmds:
+        print("   %s" % entry)
 
 
 if __name__ == "__main__":
