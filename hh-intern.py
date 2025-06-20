@@ -23,9 +23,33 @@ from datetime import datetime
 from collections import defaultdict, OrderedDict
 import argparse
 from difflib import SequenceMatcher
+import subprocess
+from pathlib import Path
+from prompt_toolkit import Application
+from prompt_toolkit.layout import Layout, HSplit, VSplit, Window, ScrollablePane
+from prompt_toolkit.layout.controls import FormattedTextControl, BufferControl
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.widgets import Box, Frame
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.shortcuts import PromptSession
+from prompt_toolkit.layout.containers import FloatContainer, Float
+from prompt_toolkit.layout.processors import Processor, Transformation
+from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.document import Document
+import getpass
+import socket
+from prompt_toolkit.filters import has_focus
+from prompt_toolkit.history import InMemoryHistory
 
 # Set up logging
-logging.basicConfig(level=logging.WARNING, format='%(levelname)s: %(message)s')
+log_file = os.path.expanduser("~/.hhistory.log")
+logging.basicConfig(
+    level=logging.WARNING,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    filename=log_file,
+    filemode='a'
+)
 logger = logging.getLogger(__name__)
 
 # Database files
@@ -629,6 +653,29 @@ def track_directory_changes(commands):
     
     return result
 
+def copy_to_clipboard(text):
+    """Copy text to clipboard with cross-platform support"""
+    try:
+        import subprocess
+        import platform
+        
+        system = platform.system()
+        
+        if system == "Darwin":  # macOS
+            subprocess.run(['pbcopy'], input=text.encode(), check=True)
+        elif system == "Linux":
+            try:
+                subprocess.run(['xclip', '-selection', 'clipboard'], input=text.encode(), check=True)
+            except FileNotFoundError:
+                subprocess.run(['xsel', '--clipboard', '--input'], input=text.encode(), check=True)
+        elif system == "Windows":
+            subprocess.run(['clip'], input=text.encode(), check=True)
+        
+        return True
+    except Exception as e:
+        logger.warning(f"Could not copy to clipboard: {e}")
+        return False
+
 def display_entries(entries, show_shell=False, show_timestamp=False, show_scores=False):
     """Display history entries in a formatted way with error handling"""
     if not entries:
@@ -733,6 +780,200 @@ def display_sidebar(db, width=50):
         logger.error(f"Error displaying sidebar: {e}")
         print("Error displaying sidebar.")
 
+def display_interactive_sidebar(db):
+    """Display an interactive sidebar with shell input and smart suggestions"""
+    try:
+        from prompt_toolkit import Application
+        from prompt_toolkit.layout import Layout, HSplit, VSplit, Window
+        from prompt_toolkit.layout.controls import BufferControl
+        from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.widgets import Box, Frame
+        from prompt_toolkit.completion import Completer, Completion
+        from prompt_toolkit.buffer import Buffer
+        from prompt_toolkit.document import Document
+        from prompt_toolkit.history import InMemoryHistory
+        import getpass
+        import socket
+        
+        # --- Key Bindings ---
+        kb = KeyBindings()
+
+        @kb.add('c-q', eager=True)
+        @kb.add('c-c', eager=True)
+        @kb.add('c-d', eager=True)
+        def _(event):
+            """Quit the application."""
+            event.app.exit()
+
+        # --- Buffers ---
+        output_buffer = Buffer()
+        suggestions_buffer = Buffer()
+
+        # --- History ---
+        history = InMemoryHistory()
+        # Load last 200 unique commands into history
+        recent_commands = db.get_recent_entries(limit=500)
+        seen_commands = set()
+        for entry in reversed(recent_commands):
+            if entry.command not in seen_commands:
+                history.append_string(entry.command)
+                seen_commands.add(entry.command)
+
+        # --- Logic ---
+        def get_prompt_text(*args):
+            user = getpass.getuser()
+            host = socket.gethostname().split('.')[0]
+            path = os.getcwd()
+            home = os.path.expanduser("~")
+            if path.startswith(home):
+                path = "~" + path[len(home):]
+            return f"[{user}@{host}] {path} $ "
+
+        def accept_command(buff):
+            """Handle Enter key: execute command, display output."""
+            command = buff.text
+            
+            # Add command to hhistory
+            if command.strip():
+                try:
+                    shell_id = get_or_create_shell_id()
+                    session_db = SessionDB(shell_id)
+                    session_db.add_entry(command, os.getcwd())
+                except Exception as e:
+                    logger.error(f"Error adding command to hhistory DB: {e}")
+
+            # Move command to output history
+            full_prompt = get_prompt_text()
+            transcript = f"{output_buffer.text}{full_prompt}{command}\n"
+            output_buffer.text = transcript
+            
+            # Execute command and capture output
+            try:
+                result = subprocess.run(
+                    command, shell=True, capture_output=True, text=True, check=False, executable='/bin/bash'
+                )
+                output = result.stdout + result.stderr
+            except Exception as e:
+                output = f"Error executing command: {e}\n"
+                logger.error(f"Subprocess execution failed: {e}")
+
+            # Append output and reset input
+            output_buffer.text += output
+            output_buffer.cursor_position = len(output_buffer.text)
+            buff.reset()
+
+        class HHistoryCompleter(Completer):
+            def __init__(self, db):
+                self.db = db
+                self.current_dir = os.getcwd()
+            
+            def get_completions(self, document, complete_event):
+                text = document.text_before_cursor.lower()
+                if text:
+                    suggestions = []
+                    recent_commands = self.db.get_recent_entries(50)
+                    for entry in recent_commands:
+                        if text in entry.command.lower():
+                            suggestions.append(Completion(
+                                entry.command, start_position=0,
+                                display=entry.command[:50] + "..." if len(entry.command) > 50 else entry.command
+                            ))
+                    seen = {s.text for s in suggestions}
+                    local_commands = self.db.get_entries_by_directory(self.current_dir)
+                    for entry in local_commands:
+                        if text in entry.command.lower() and entry.command not in seen:
+                            suggestions.append(Completion(
+                                entry.command, start_position=0,
+                                display=f"[LOCAL] {entry.command[:40]}" + "..." if len(entry.command) > 40 else entry.command
+                            ))
+                    return suggestions[:10]
+                return []
+
+        input_buffer = Buffer(
+            completer=HHistoryCompleter(db),
+            multiline=False,
+            accept_handler=accept_command,
+            history=history  # Enable up-arrow history
+        )
+        
+        # --- Suggestions ---
+        top_cmds = db.get_top_commands(10)
+        current_dir = os.getcwd()
+        
+        def get_suggestions_for_input(input_text):
+            if not input_text:
+                suggestions = ["💡 Smart Suggestions", "=" * 40, ""]
+                local_cmds = db.get_entries_by_directory(current_dir)[:5]
+                if local_cmds:
+                    suggestions.append("📁 Recent in this directory:")
+                    for i, entry in enumerate(local_cmds, 1):
+                        suggestions.append(f"  {i}. {entry.command[:35]}")
+                    suggestions.append("")
+                suggestions.append("🔥 Most used commands:")
+                for i, (cmd, count) in enumerate(top_cmds[:5], 1):
+                    suggestions.append(f"  {i}. {cmd[:35]} ({count}x)")
+                return suggestions
+            
+            suggestions = [f"🔍 Suggestions for '{input_text}':", "=" * 40, ""]
+            fuzzy_results = db.fuzzy_search_commands(input_text, threshold=0.3, limit=8)
+            if fuzzy_results:
+                suggestions.append("🎯 Best matches:")
+                for i, (entry, score) in enumerate(fuzzy_results, 1):
+                    suggestions.append(f"  {i}. {entry.command[:35]} [{score:.2f}]")
+            return suggestions
+
+        def update_suggestions():
+            text = input_buffer.text
+            suggestions = get_suggestions_for_input(text)
+            suggestions_buffer.document = Document('\n'.join(suggestions))
+        
+        input_buffer.on_text_changed += lambda _: update_suggestions()
+        update_suggestions()
+        
+        # --- Layout ---
+        output_window = Window(BufferControl(buffer=output_buffer), wrap_lines=True)
+        input_window = Window(
+            BufferControl(buffer=input_buffer),
+            get_line_prefix=get_prompt_text,
+            height=1
+        )
+        
+        left_panel = HSplit([output_window, input_window])
+        
+        suggestions_window = Window(
+            BufferControl(buffer=suggestions_buffer, focusable=False),
+            wrap_lines=True
+        )
+        
+        layout = Layout(VSplit([
+            Frame(left_panel, title="💻 Shell"),
+            Frame(Box(suggestions_window, padding=1), title="🧠 Smart Suggestions")
+        ]))
+        
+        # --- Application ---
+        app = Application(
+            layout=layout,
+            key_bindings=kb,
+            full_screen=True,
+            mouse_support=True
+        )
+        
+        print("🚀 Starting Interactive Shell with Smart Suggestions...")
+        print("Enter commands to execute | Output appears in this window | Ctrl+C/D/Q to quit")
+        print()
+        
+        app.layout.focus(input_window)
+        app.run()
+        
+    except ImportError:
+        print("Interactive sidebar requires prompt_toolkit. Install with: pip install prompt_toolkit")
+        print("Falling back to basic sidebar...")
+        display_sidebar(db)
+    except Exception as e:
+        logger.error(f"FATAL: Error displaying interactive sidebar: {e}")
+        print("Error displaying interactive sidebar. Falling back to basic sidebar...")
+        display_sidebar(db)
+
 def display_stats(db):
     """Display database statistics with error handling"""
     try:
@@ -762,6 +1003,75 @@ def display_stats(db):
         logger.error(f"Error displaying stats: {e}")
         print("Error displaying database statistics.")
 
+def show_help():
+    """Show help information"""
+    help_text = """
+🚀 hhistory - Global Shell Command History Tracker
+
+USAGE:
+    hh [command] [options]
+
+COMMANDS:
+    timeline              Show timeline of recent commands
+    dir [directory]       Show commands from specific directory
+    session [session_id]  Show commands from specific shell session
+    search <query>        Search commands with fuzzy matching
+    stats                 Show usage statistics
+    sidebar               Show recent commands sidebar
+    interactive           Interactive shell with smart suggestions
+    clean                 Clean up dead session databases
+    help                  Show this help
+
+OPTIONS:
+    -n, --limit N         Limit number of results (default: 20)
+    -d, --days N          Show commands from last N days
+    -f, --format FORMAT   Output format: table, json, csv
+    -v, --verbose         Verbose output
+    --debug               Enable debug logging
+
+EXAMPLES:
+    hh timeline                    # Show recent command timeline
+    hh dir /home/user/projects     # Show commands from specific directory
+    hh search "git commit"         # Search for git commit commands
+    hh stats                       # Show usage statistics
+    hh sidebar                     # Show command sidebar
+    hh interactive                 # Interactive shell with suggestions
+
+INTERACTIVE MODE:
+    The interactive mode provides a split-pane interface:
+    
+    Left Panel (💻 Shell Input):
+    - Type commands as you normally would
+    - Tab completion from your command history
+    - Real-time command suggestions
+    
+    Right Panel (🧠 Smart Suggestions):
+    - Context-aware command recommendations
+    - Fuzzy search results
+    - Recent commands from current directory
+    - Most frequently used commands
+    
+    Controls:
+    - Tab: Complete current suggestion
+    - Ctrl+C: Copy suggestion to clipboard
+    - Ctrl+Q: Quit interactive mode
+
+FEATURES:
+    • Global command history across all directories and sessions
+    • Fuzzy search with intelligent matching
+    - Directory-specific command tracking
+    - Session-based command isolation
+    - Usage statistics and analytics
+    - Interactive command suggestions
+    - Automatic cleanup of dead sessions
+
+INSTALLATION:
+    curl -sSL https://raw.githubusercontent.com/your-repo/hhistory/main/install.sh | bash
+
+For more information, visit: https://github.com/your-repo/hhistory
+"""
+    print(help_text)
+
 def usage():
     print("Enhanced hhistory - Timeline + Directory + Session History (TTY+PID)")
     print()
@@ -775,6 +1085,7 @@ def usage():
     print("  --search, -q <query>     Search commands")
     print("  --fuzzy, -f <query>      Fuzzy search commands")
     print("  --sidebar                Show recent history sidebar")
+    print("  --sidebar-interactive    Show interactive sidebar (requires prompt_toolkit)")
     print("  --all, -a                Show all history")
     print("  --stats                  Show database statistics")
     print("  --cleanup [days]         Clean up old session databases")
@@ -789,6 +1100,7 @@ def usage():
     print("  hh --search 'git'        Search for commands containing 'git'")
     print("  hh --fuzzy 'git'         Fuzzy search for git-related commands")
     print("  hh --sidebar             Show recent history sidebar")
+    print("  hh --sidebar-interactive Show interactive sidebar")
     print("  hh --stats               Show database statistics")
     print("  hh --cleanup 30          Clean up sessions older than 30 days")
     print("  hh --cleanup-dead        Clean up dead shell databases")
@@ -803,6 +1115,7 @@ def main():
     parser.add_argument('--search', '-q', type=str, metavar='QUERY', help='Search commands')
     parser.add_argument('--fuzzy', '-f', type=str, metavar='QUERY', help='Fuzzy search commands')
     parser.add_argument('--sidebar', action='store_true', help='Show recent history sidebar')
+    parser.add_argument('--sidebar-interactive', action='store_true', help='Show interactive sidebar (requires prompt_toolkit)')
     parser.add_argument('--all', '-a', action='store_true', help='Show all history')
     parser.add_argument('--stats', action='store_true', help='Show database statistics')
     parser.add_argument('--cleanup', type=int, nargs='?', const=30, metavar='DAYS', help='Clean up old session databases')
@@ -872,7 +1185,10 @@ def main():
     
     # Handle different query modes
     try:
-        if args.sidebar:
+        if args.sidebar_interactive:
+            display_interactive_sidebar(global_history)
+        
+        elif args.sidebar:
             display_sidebar(global_history)
         
         elif args.stats:
@@ -911,7 +1227,7 @@ def main():
             display_entries(entries, show_shell=args.shell, show_timestamp=True)
         
         else:
-            usage()
+            show_help()
     except Exception as e:
         logger.error(f"Error during query: {e}")
         print("Error: Could not complete the requested operation.")
