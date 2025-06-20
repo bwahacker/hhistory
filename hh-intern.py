@@ -657,6 +657,82 @@ def display_entries(entries, show_shell=False, show_timestamp=False, show_scores
         logger.error(f"Error displaying entries: {e}")
         print("Error displaying history entries.")
 
+def display_sidebar(db, width=50):
+    """Display a sidebar with recent history panels"""
+    try:
+        # Get terminal width
+        try:
+            import shutil
+            term_width = shutil.get_terminal_size().columns
+        except:
+            term_width = 80
+        
+        # Calculate sidebar width
+        sidebar_width = min(width, term_width // 3)
+        
+        # Get recent data
+        recent_global = db.get_recent_entries(8)
+        current_dir = os.getcwd()
+        recent_local = db.get_entries_by_directory(current_dir)[:6]
+        
+        # Create sidebar content
+        sidebar = []
+        sidebar.append("=" * sidebar_width)
+        sidebar.append("📊 Recent History Sidebar")
+        sidebar.append("=" * sidebar_width)
+        
+        # Global commands panel
+        sidebar.append("")
+        sidebar.append("🌍 Recent Global Commands")
+        sidebar.append("-" * sidebar_width)
+        if recent_global:
+            for i, entry in enumerate(recent_global, 1):
+                cmd = entry.command[:sidebar_width-10] + "..." if len(entry.command) > sidebar_width-10 else entry.command
+                sidebar.append(f"{i:2d}. {cmd}")
+        else:
+            sidebar.append("No recent commands")
+        
+        # Local commands panel
+        sidebar.append("")
+        sidebar.append(f"📁 Recent in {os.path.basename(current_dir)}")
+        sidebar.append("-" * sidebar_width)
+        if recent_local:
+            for i, entry in enumerate(recent_local, 1):
+                cmd = entry.command[:sidebar_width-10] + "..." if len(entry.command) > sidebar_width-10 else entry.command
+                sidebar.append(f"{i:2d}. {cmd}")
+        else:
+            sidebar.append("No commands in this dir")
+        
+        # Quick stats panel
+        sidebar.append("")
+        sidebar.append("📈 Quick Stats")
+        sidebar.append("-" * sidebar_width)
+        stats = db.get_stats()
+        sidebar.append(f"Total: {stats['total_entries']}")
+        sidebar.append(f"Directories: {stats['unique_directories']}")
+        sidebar.append(f"Shells: {stats['unique_shells']}")
+        
+        # Top commands panel
+        sidebar.append("")
+        sidebar.append("🔥 Top Commands")
+        sidebar.append("-" * sidebar_width)
+        top_cmds = db.get_top_commands(5)
+        for cmd, count in top_cmds:
+            cmd_short = cmd[:sidebar_width-8] + "..." if len(cmd) > sidebar_width-8 else cmd
+            sidebar.append(f"{cmd_short} ({count})")
+        
+        sidebar.append("")
+        sidebar.append("=" * sidebar_width)
+        sidebar.append("💡 Tip: Use 'hh --help' for more options")
+        
+        # Print sidebar
+        for line in sidebar:
+            print(line)
+            
+    except Exception as e:
+        logger.error(f"Error displaying sidebar: {e}")
+        print("Error displaying sidebar.")
+
 def display_stats(db):
     """Display database statistics with error handling"""
     try:
@@ -698,6 +774,7 @@ def usage():
     print("  --recent, -r [N]         Show recent N commands (default: 50)")
     print("  --search, -q <query>     Search commands")
     print("  --fuzzy, -f <query>      Fuzzy search commands")
+    print("  --sidebar                Show recent history sidebar")
     print("  --all, -a                Show all history")
     print("  --stats                  Show database statistics")
     print("  --cleanup [days]         Clean up old session databases")
@@ -711,6 +788,7 @@ def usage():
     print("  hh --recent 20           Show 20 most recent commands")
     print("  hh --search 'git'        Search for commands containing 'git'")
     print("  hh --fuzzy 'git'         Fuzzy search for git-related commands")
+    print("  hh --sidebar             Show recent history sidebar")
     print("  hh --stats               Show database statistics")
     print("  hh --cleanup 30          Clean up sessions older than 30 days")
     print("  hh --cleanup-dead        Clean up dead shell databases")
@@ -724,6 +802,7 @@ def main():
     parser.add_argument('--recent', '-r', type=int, nargs='?', const=50, metavar='N', help='Show recent N commands')
     parser.add_argument('--search', '-q', type=str, metavar='QUERY', help='Search commands')
     parser.add_argument('--fuzzy', '-f', type=str, metavar='QUERY', help='Fuzzy search commands')
+    parser.add_argument('--sidebar', action='store_true', help='Show recent history sidebar')
     parser.add_argument('--all', '-a', action='store_true', help='Show all history')
     parser.add_argument('--stats', action='store_true', help='Show database statistics')
     parser.add_argument('--cleanup', type=int, nargs='?', const=30, metavar='DAYS', help='Clean up old session databases')
@@ -793,7 +872,10 @@ def main():
     
     # Handle different query modes
     try:
-        if args.stats:
+        if args.sidebar:
+            display_sidebar(global_history)
+        
+        elif args.stats:
             display_stats(global_history)
         
         elif args.timeline:
@@ -828,7 +910,7 @@ def main():
             print(f"History for: {target_dir}")
             display_entries(entries, show_shell=args.shell, show_timestamp=True)
         
-    else:
+        else:
             usage()
     except Exception as e:
         logger.error(f"Error during query: {e}")

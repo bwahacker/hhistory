@@ -20,6 +20,7 @@ alias hhstats='hh --stats'          # Statistics
 alias hhall='hh --all'              # All history
 alias hhclean='hh --cleanup'        # Cleanup old sessions
 alias hhcleanup='hh --cleanup-dead' # Cleanup dead shells
+alias hhsb='hh --sidebar'           # Show sidebar
 
 # Function to save current shell history
 save_history() {

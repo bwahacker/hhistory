@@ -18,6 +18,7 @@
 - 📁 **Directory Context**: Know exactly where each command was run
 - 🔍 **Fuzzy Search**: Find commands even when you don't remember the exact syntax
 - 🎯 **Session Tracking**: Distinguish between different terminal sessions
+- 📊 **History Sidebar**: Quick overview of recent commands and stats
 - 🚀 **Zero Configuration**: Works out of the box with intelligent defaults
 - 🛡️ **Error Resilient**: Handles edge cases gracefully without crashing
 - ⚡ **Lightning Fast**: SQLite-powered with intelligent indexing
@@ -79,6 +80,7 @@ hh --search 'deploy'  # Find deployment commands
 
 ```bash
 hh --stats            # Show database statistics
+hh --sidebar          # Show recent history sidebar
 hh --all              # Show all history (use with caution)
 ```
 
@@ -96,9 +98,57 @@ hht         # Timeline view
 hhr         # Recent commands  
 hhs         # Search commands
 hhf         # Fuzzy search
+hhsb        # Show sidebar
 hhstats     # Statistics
 hhall       # All history
 hhclean     # Cleanup old sessions
+```
+
+---
+
+## 📊 History Sidebar
+
+The sidebar provides a quick overview of your command history:
+
+```bash
+hh --sidebar
+```
+
+**Features:**
+- 🌍 **Recent Global Commands**: Last 8 commands across all terminals
+- 📁 **Recent Local Commands**: Last 6 commands in current directory
+- 📈 **Quick Stats**: Total entries, directories, and shells
+- 🔥 **Top Commands**: Most frequently used commands
+
+**Example Output:**
+```
+====================================
+📊 Recent History Sidebar
+====================================
+
+🌍 Recent Global Commands
+------------------------------------
+ 1. git commit -m "Add feature"
+ 2. docker run -it ubuntu bash
+ 3. python3 test_hh.py
+
+📁 Recent in project
+------------------------------------
+ 1. git status
+ 2. make test
+ 3. hh --stats
+
+📈 Quick Stats
+------------------------------------
+Total: 1,247
+Directories: 23
+Shells: 5
+
+🔥 Top Commands
+------------------------------------
+git status (45)
+ls -la (32)
+cd (28)
 ```
 
 ---
