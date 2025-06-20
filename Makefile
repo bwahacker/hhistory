@@ -1,39 +1,62 @@
-.PHONY: hh install clean cleanup cleanup-dead
+# hhistory Makefile
+# The ultimate shell history system
 
-# Install the enhanced hhistory system
-hh: install
+.PHONY: install test clean help
 
+# Default target
+all: help
+
+# Install hhistory
 install:
-	@echo "Installing enhanced hhistory (TTY+PID)..."
+	@echo "Installing hhistory..."
+	@chmod +x hh-intern.py
+	@chmod +x install.sh
 	@mkdir -p ~/bin
-	cp hh-intern.py ~/bin/hh-intern.py
-	cp hh-alias.sh ~/bin/hh-alias.sh
-	chmod +x ~/bin/hh-intern.py
+	@cp hh-intern.py ~/bin/
+	@cp hh-alias.sh ~/bin/
 	@echo "Installation complete!"
-	@echo "Add 'source ~/bin/hh-alias.sh' to your ~/.bashrc or ~/.zshrc"
+	@echo "Add 'source ~/bin/hh-alias.sh' to your shell config"
 
-# Clean up old session databases
-cleanup:
-	@echo "Cleaning up old session databases..."
-	@if [ -d ~/.hh_databases ]; then \
-		find ~/.hh_databases -name "session_*.db" -mtime +30 -delete; \
-		echo "Removed session databases older than 30 days"; \
-	else \
-		echo "No session databases found"; \
-	fi
+# Run tests
+test:
+	@echo "Running hhistory tests..."
+	@python3 test_hh.py
 
-# Clean up dead shell databases
-cleanup-dead:
-	@echo "Cleaning up dead shell databases..."
-	@if [ -f ~/bin/hh-intern.py ]; then \
-		~/bin/hh-intern.py --cleanup-dead; \
-	else \
-		echo "hhistory not installed"; \
-	fi
+# Quick test (basic functionality)
+test-quick:
+	@echo "Running quick test..."
+	@python3 -c "import hh_intern; print('✓ Basic import successful')" 2>/dev/null || echo "❌ Import failed"
 
-# Clean up installation and all data
+# Clean up temporary files
 clean:
-	rm -f ~/bin/hh-intern.py ~/bin/hh-alias.sh ~/.hh_session.json ~/.myhistory
-	rm -rf ~/.hh_databases ~/.hh_lifecycle
-	rm -f ~/.hh_global_history.json ~/.hh_global_history.db
+	@echo "Cleaning up..."
+	@rm -f ~/.myhistory
+	@rm -rf ~/.hh_databases
+	@rm -rf ~/.hh_lifecycle
+	@echo "Cleanup complete!"
+
+# Uninstall hhistory
+uninstall:
+	@echo "Uninstalling hhistory..."
+	@rm -f ~/bin/hh-intern.py
+	@rm -f ~/bin/hh-alias.sh
+	@echo "Please remove 'source ~/bin/hh-alias.sh' from your shell config"
+	@echo "Uninstall complete!"
+
+# Show help
+help:
+	@echo "hhistory - The ultimate shell history system"
+	@echo ""
+	@echo "Available targets:"
+	@echo "  install     - Install hhistory to ~/bin"
+	@echo "  test        - Run full test suite"
+	@echo "  test-quick  - Run quick functionality test"
+	@echo "  clean       - Clean up temporary files and databases"
+	@echo "  uninstall   - Remove hhistory installation"
+	@echo "  help        - Show this help message"
+	@echo ""
+	@echo "Usage examples:"
+	@echo "  make install    # Install hhistory"
+	@echo "  make test       # Run tests"
+	@echo "  make clean      # Clean up data"
 

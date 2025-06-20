@@ -1,33 +1,38 @@
 # Load this file with 'source'
 # Enhanced hhistory alias for timeline + directory + session history
 
-# Function to save history based on shell type
-save_history() {
-    if [ -n "$ZSH_VERSION" ]; then
-        # zsh
-        fc -W ~/.myhistory
-    elif [ -n "$BASH_VERSION" ]; then
-        # bash
-        history -w ~/.myhistory
+# Main function to call hhistory
+hh() {
+    if [ -f ~/bin/hh-intern.py ]; then
+        python3 ~/bin/hh-intern.py "$@"
     else
-        # fallback - try to copy history file
-        if [ -f ~/.zsh_history ]; then
-            cp ~/.zsh_history ~/.myhistory
-        elif [ -f ~/.bash_history ]; then
-            cp ~/.bash_history ~/.myhistory
-        fi
+        echo "hhistory not found. Please run: curl -sSL https://raw.githubusercontent.com/bwahacker/hhistory/main/install.sh | bash"
+        return 1
     fi
 }
 
-# Save current history and update global history
-alias hh='save_history && ~/bin/hh-intern.py'
-
 # Quick aliases for common operations
-alias hht='hh --timeline'           # Show timeline view
-alias hhr='hh --recent'             # Show recent commands
+alias hht='hh --timeline'           # Timeline view
+alias hhr='hh --recent'             # Recent commands
 alias hhs='hh --search'             # Search commands
-alias hha='hh --all'                # Show all history
-alias hhshell='hh --shell'          # Show with shell info
-alias hhstats='hh --stats'          # Show database statistics
-alias hhclean='hh --cleanup'        # Clean up old session databases
-alias hhcleandead='hh --cleanup-dead' # Clean up dead shell databases
+alias hhf='hh --fuzzy'              # Fuzzy search commands
+alias hhstats='hh --stats'          # Statistics
+alias hhall='hh --all'              # All history
+alias hhclean='hh --cleanup'        # Cleanup old sessions
+alias hhcleanup='hh --cleanup-dead' # Cleanup dead shells
+
+# Function to save current shell history
+save_history() {
+    # Save current history to ~/.myhistory
+    history > ~/.myhistory
+    
+    # Update hhistory database
+    hh
+}
+
+# Auto-save history on shell exit
+trap save_history EXIT
+
+# Export function so it's available in subshells
+export -f hh
+export -f save_history
